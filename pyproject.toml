@@ -26,6 +26,8 @@ dependencies = [
     "pyyaml",
     "yarl",
     "aiohttp",
+    "openai",
+    "aiofiles",
 ]
 
 [project.scripts]

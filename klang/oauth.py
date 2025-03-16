@@ -1,12 +1,14 @@
 import base64
 import secrets
 import string
-from datetime import timedelta
+from datetime import datetime, timedelta
 from hashlib import sha256
-from typing import Tuple
+from typing import Tuple, Optional
 
 import aiohttp
 import yarl
+from aiohttp import ClientSession
+from fastapi import HTTPException
 from pydantic import BaseModel
 
 from klang.config import Config
@@ -60,7 +62,7 @@ def oauth_state_cookie_name() -> str:
 
 
 async def code_to_token(
-    config: Config, http_session: aiohttp.ClientSession, code: str, verifier: str
+    config: Config, http_session: aiohttp.ClientSession, code: str, verifier: str,
 ) -> OAuthTokenResponse:
     async with http_session.post(
         config.oauth_client.token_uri,
@@ -83,4 +85,32 @@ async def code_to_token(
         except (ValueError, KeyError, TypeError):
             raise OAuthError(
                 "Auth server returned invalid response: {}".format(await result.text())
+            )
+
+
+class OAuthUser(BaseModel):
+    id: int
+    email: str
+    created_at: datetime
+    is_superuser: bool
+    username: Optional[str] = None
+
+
+async def token_to_user(http_client: ClientSession, config: Config, token: str) -> OAuthUser:
+    async with http_client.get(
+        config.oauth_client.userinfo_uri,
+        headers={"Authorization": f"Bearer {token}"},
+    ) as result:
+        if result.status != 200:
+            raise HTTPException(
+                status_code=401,
+                detail="Auth server returned {}: {}".format(result.status, await result.text()),
+            )
+        try:
+            data = await result.json()
+            return OAuthUser(**data)
+        except (ValueError, KeyError, TypeError):
+            raise HTTPException(
+                status_code=401,
+                detail="Auth server returned invalid response: {}".format(await result.text()),
             )
