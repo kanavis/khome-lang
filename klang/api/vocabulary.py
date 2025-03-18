@@ -1,4 +1,4 @@
-from typing import List, Annotated, Dict
+from typing import List, Dict, Annotated
 
 from fastapi import FastAPI, Body, HTTPException
 from openai import BaseModel
@@ -122,12 +122,16 @@ def bind_vocabulary_api(app: FastAPI, storage: Storage):
         sql_query = select(Vocabulary).where(Vocabulary.user_id == user_data.user.id)
         return (await session.exec(sql_query)).all()
 
+    class AddVocabularyIn(BaseModel):
+        meaning_id: int
+
     @app.put("/api/vocabulary")
     async def add_vocabulary(
         session: SessionDep,
         user_data: UserDep,
-        meaning_id: Annotated[int, Body()],
-    ):
-        record = Vocabulary(user_id=user_data.user.id, meaning_id=meaning_id)
+        request: AddVocabularyIn,
+    ) -> bool:
+        record = Vocabulary(user_id=user_data.user.id, word_meaning_id=request.meaning_id)
         session.add(record)
         await session.commit()
+        return True

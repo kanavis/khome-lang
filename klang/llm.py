@@ -395,7 +395,8 @@ class LLMClient:
             model="dall-e-3",
             prompt=(
                 "Draw illustration to concept \"{}. {}\" "
-                "without any words on a picture, just the illustration".format(
+                "without any words on a picture, just the illustration "
+                "with a relatively simple and straightforward style".format(
                     word, description,
                 )
             ),
