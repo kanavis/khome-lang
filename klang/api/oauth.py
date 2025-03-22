@@ -1,20 +1,26 @@
 from datetime import datetime, UTC
 from typing import Annotated
 
+from aiohttp import ClientSession
+from dishka import FromDishka
+from dishka.integrations.fastapi import inject
 from fastapi import FastAPI, responses, Request, HTTPException, Body
 
-from klang.api.common import HTTPClientDep, ConfigDep, UserDep
+from klang.api.common import UserDep
+from klang.config import Config
 from klang.oauth import (
     make_auth_url,
     oauth_verifier_cookie_name,
     OAUTH_SESSION_LIFETIME,
-    oauth_state_cookie_name, code_to_token, OAuthTokenResponse,
+    oauth_state_cookie_name, code_to_token, OAuthTokenResponse, refresh_token_to_token,
+    make_logout_url,
 )
 
 
 def bind_oauth_api(app: FastAPI):
     @app.get("/api/oauth/auth_url")
-    async def auth_url(config: ConfigDep):
+    @inject
+    async def auth_url(config: FromDishka[Config]):
         url, verifier, state = make_auth_url(config)
         response = responses.JSONResponse({"url": url})
         response.set_cookie(
@@ -32,10 +38,11 @@ def bind_oauth_api(app: FastAPI):
         return response
 
     @app.post("/api/oauth/code_to_token")
+    @inject
     async def oauth_code_to_token(
         request: Request,
-        config: ConfigDep,
-        http_session: HTTPClientDep,
+        config: FromDishka[Config],
+        http_session: FromDishka[ClientSession],
         code: Annotated[str, Body()],
         state: Annotated[str, Body()],
     ) -> OAuthTokenResponse:
@@ -55,3 +62,22 @@ def bind_oauth_api(app: FastAPI):
         user_data: UserDep,
     ):
         return user_data
+
+    @app.post("/api/oauth/refresh_token")
+    @inject
+    async def oauth_refresh_token(
+        config: FromDishka[Config],
+        http_session: FromDishka[ClientSession],
+        refresh_token: Annotated[str, Body()],
+    ):
+        return await refresh_token_to_token(config, http_session, refresh_token)
+
+    @app.post("/api/oauth/logout_url")
+    @inject
+    async def oauth_refresh_token(
+        config: FromDishka[Config],
+        cancel_uri: Annotated[str, Body()],
+        redirect_uri: Annotated[str, Body()],
+    ):
+        next_uri = make_logout_url(config, cancel_uri, redirect_uri)
+        return {"redirect_uri": next_uri}

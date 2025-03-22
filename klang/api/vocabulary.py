@@ -1,27 +1,31 @@
-from typing import List, Dict, Annotated
+from typing import List, Dict
 
-from fastapi import FastAPI, Body, HTTPException
+from dishka import FromDishka
+from dishka.integrations.fastapi import inject
+from fastapi import FastAPI, HTTPException
 from openai import BaseModel
 from sqlmodel import select
 
-from klang.api.common import UserDep, LLMClientDep, StorageDep
+from klang.api.common import UserDep
+from klang.config import Config
 from klang.db import SessionDep
 from klang.lang import make_full_word
+from klang.llm import LLMClient
 from klang.models import Lexicon, Vocabulary, WordMeaning, WordMeaningTranslation
 from fastapi.staticfiles import StaticFiles
 
 from klang.storage import Storage
 
 
-def bind_vocabulary_api(app: FastAPI, storage: Storage):
+def bind_vocabulary_api(app: FastAPI, config: Config):
     app.mount(
         "/api/lexicon/illustrations",
-        StaticFiles(directory=storage.get_illustrations_dir()),
+        StaticFiles(directory=config.illustrations_dir),
         name="lexicon_illustrations",
     )
     app.mount(
         "/api/lexicon/sounds",
-        StaticFiles(directory=storage.get_sounds_dir()),
+        StaticFiles(directory=config.sounds_dir),
         name="lexicon_sounds",
     )
 
@@ -41,10 +45,11 @@ def bind_vocabulary_api(app: FastAPI, storage: Storage):
         added: bool
 
     @app.get("/api/lexicon/meanings")
+    @inject
     async def lexicon_meanings(
         session: SessionDep,
         _user_data: UserDep,
-        llm_client: LLMClientDep,
+        llm_client: FromDishka[LLMClient],
         word: str,
         llm: bool = False,
     ) -> List[WordMeaningOut]:
@@ -70,11 +75,12 @@ def bind_vocabulary_api(app: FastAPI, storage: Storage):
         return result
 
     @app.get("/api/lexicon/ensure_illustrations")
+    @inject
     async def lexicon_ensure_illustrations(
         session: SessionDep,
         _user_data: UserDep,
-        llm_client: LLMClientDep,
-        storage_obj: StorageDep,
+        llm_client: FromDishka[LLMClient],
+        storage_obj: FromDishka[Storage],
         word_meaning_id: int,
         llm: bool = False,
     ) -> bool:
@@ -93,10 +99,11 @@ def bind_vocabulary_api(app: FastAPI, storage: Storage):
             return True
 
     @app.get("/api/lexicon/ensure_sounds")
+    @inject
     async def lexicon_ensure_sounds(
         _user_data: UserDep,
-        llm_client: LLMClientDep,
-        storage_obj: StorageDep,
+        llm_client: FromDishka[LLMClient],
+        storage_obj: FromDishka[Storage],
         full_word: str,
         llm: bool = False,
     ) -> bool:

@@ -11,7 +11,7 @@ from typing import List, Optional, Dict, TypeVar, Generic
 import aiofiles
 import yarl
 from aiohttp import ClientSession
-from openai import AsyncOpenAI
+from openai import AsyncOpenAI, RateLimitError
 from pydantic import BaseModel
 from sqlalchemy import Select
 from sqlalchemy.exc import OperationalError
@@ -94,7 +94,6 @@ class TaskContainer(Generic[T, S]):
     lock: asyncio.Lock
     events: Dict[S, TaskEventContainer]
     queue: asyncio.Queue[T]
-    process_task: Optional[asyncio.Task] = None
 
 
 @dataclass
@@ -129,29 +128,49 @@ class LLMClient:
         self._word_meaning_tasks = TaskContainerWordMeaning(
             lock=asyncio.Lock(), events={}, queue=asyncio.Queue[WordMeaningTask](1000),
         )
+        self._word_meaning_job: Optional[asyncio.Task] = None
         self._word_illustration_tasks = TaskContainerWordIllustration(
             lock=asyncio.Lock(), events={}, queue=asyncio.Queue[WordIllustrationTask](1000),
         )
+        self._word_illustration_job: Optional[asyncio.Task] = None
         self._word_sound_tasks = TaskContainerWordSound(
             lock=asyncio.Lock(), events={}, queue=asyncio.Queue[WordSoundTask](1000),
         )
+        self._word_sound_job: Optional[asyncio.Task] = None
 
     async def start(self):
-        if self._word_meaning_tasks.process_task is not None:
+        log.info("Starting LLM client background tasks")
+        if self._word_meaning_job is not None:
             raise RuntimeError("Already running")
-        if self._word_illustration_tasks.process_task is not None:
+        if self._word_illustration_job is not None:
             raise RuntimeError("Already running")
-        if self._word_sound_tasks.process_task is not None:
+        if self._word_sound_job is not None:
             raise RuntimeError("Already running")
-        self._word_meaning_tasks.process_task = asyncio.create_task(
-            self._process_word_meanings_forever()
+        self._word_meaning_job = asyncio.create_task(
+            self._process_word_meanings_forever(),
         )
-        self._word_illustration_tasks.process_task = asyncio.create_task(
+        self._word_illustration_job = asyncio.create_task(
             self._process_word_illustrations_forever(),
         )
-        self._word_sound_tasks.process_task = asyncio.create_task(
+        self._word_sound_job = asyncio.create_task(
             self._process_word_sounds_forever(),
         )
+
+    async def stop(self):
+        log.info("Stopping LLM client background tasks")
+        if self._word_meaning_job is not None:
+            self._word_meaning_job.cancel()
+        if self._word_illustration_job is not None:
+            self._word_illustration_job.cancel()
+        if self._word_sound_job is not None:
+            self._word_sound_job.cancel()
+
+    async def __aenter__(self):
+        await self.start()
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        await self.stop()
 
     async def _process_word_meanings_forever(self):
         while True:
@@ -164,20 +183,20 @@ class LLMClient:
     async def _process_word_meanings(self):
         log.info("Starting word meaning processing")
         while True:
+            task = await self._word_meaning_tasks.queue.get()
+            log.info(f"Processing task for word meanings of '{task.word}'")
             async with get_session() as session:
-                task = await self._word_meaning_tasks.queue.get()
-                log.info(f"Processing task for word meanings of '{task.word}'")
                 try:
                     await self._generate_word_meanings(session, task.word)
                     task.event_container.event.set()
                 except OperationalError as e:
                     log.error("DB operational error (meaning) {}".format(e))
-                    task.event_container.event.set()
                     task.event_container.exception = e
+                    task.event_container.event.set()
                 except Exception as e:
                     log.exception(f"Error processing word meaning of '{task.word}': {e}")
-                    task.event_container.event.set()
                     task.event_container.exception = e
+                    task.event_container.event.set()
 
     async def _process_word_illustrations_forever(self):
         while True:
@@ -190,9 +209,9 @@ class LLMClient:
     async def _process_word_illustrations(self):
         log.info("Starting word illustration processing")
         while True:
+            task = await self._word_illustration_tasks.queue.get()
+            log.info(f"Processing task for word illustration of '{task.word}'")
             async with get_session() as session:
-                task = await self._word_illustration_tasks.queue.get()
-                log.info(f"Processing task for word illustration of '{task.word}'")
                 try:
                     await self._generate_word_illustration(
                         session, task.word, task.description, task.png_path,
@@ -200,12 +219,12 @@ class LLMClient:
                     task.event_container.event.set()
                 except OperationalError as e:
                     log.error("DB operational error (illustration) {}".format(e))
-                    task.event_container.event.set()
                     task.event_container.exception = e
+                    task.event_container.event.set()
                 except Exception as e:
                     log.exception(f"Error processing word illustration: {e}")
-                    task.event_container.event.set()
                     task.event_container.exception = e
+                    task.event_container.event.set()
 
     async def _process_word_sounds_forever(self):
         while True:
@@ -218,12 +237,12 @@ class LLMClient:
     async def _process_word_sounds(self):
         log.info("Starting word sounds processing")
         while True:
+            task = await self._word_sound_tasks.queue.get()
+            log.info(f"Processing task for word sound of '{task.word}'")
             async with (
                 get_session() as session,
                 ClientSession() as http_client,
             ):
-                task = await self._word_sound_tasks.queue.get()
-                log.info(f"Processing task for word sound of '{task.word}'")
                 try:
                     await self._generate_word_sound(
                         session, http_client, task.word, task.mp3_path,
@@ -231,12 +250,12 @@ class LLMClient:
                     task.event_container.event.set()
                 except OperationalError as e:
                     log.error("DB operational error (sound) {}".format(e))
-                    task.event_container.event.set()
                     task.event_container.exception = e
+                    task.event_container.event.set()
                 except Exception as e:
                     log.exception(f"Error processing word sound: {e}")
-                    task.event_container.event.set()
                     task.event_container.exception = e
+                    task.event_container.event.set()
 
     def _make_messages_with_context(self, request: str) -> List[Dict[str, str]]:
         return [
@@ -342,16 +361,22 @@ class LLMClient:
         if len(result) > 0:
             log.info(f"Word meanings for '{word}' already exist")
             return
-        completion = await self.openai.beta.chat.completions.parse(
-            model="gpt-4o",
-            messages=self._make_messages_with_context(
-                "Translation of a german word \"{}\" to russian and english, "
-                "with description, maximum 3 most popular meanings, "
-                "avoid duplicates and close synonyms.".format(word)
-            ),
-            response_format=LLMWord,
-            n=1,
-        )
+        while True:
+            try:
+                completion = await self.openai.beta.chat.completions.parse(
+                    model="gpt-4o",
+                    messages=self._make_messages_with_context(
+                        "Translation of a german word \"{}\" to russian and english, "
+                        "with description, maximum 3 most popular meanings, "
+                        "avoid duplicates and close synonyms.".format(word)
+                    ),
+                    response_format=LLMWord,
+                    n=1,
+                )
+                break
+            except RateLimitError as err:
+                log.warning(f"LLM rate limit exceeded: {err}, retrying in 10 seconds...")
+                await asyncio.sleep(10)
         session.add(LLMLog(
             request_type="translation",
             request_data=word,
@@ -391,20 +416,26 @@ class LLMClient:
         if png_path.exists():
             log.info(f"Word illustration '{png_path.name}' already exists")
             return
-        result = await self.openai.images.generate(
-            model="dall-e-3",
-            prompt=(
-                "Draw illustration to concept \"{}. {}\" "
-                "without any words on a picture, just the illustration "
-                "with a relatively simple and straightforward style".format(
-                    word, description,
+        while True:
+            try:
+                result = await self.openai.images.generate(
+                    model="dall-e-3",
+                    prompt=(
+                        "Draw illustration to concept \"{}. {}\" "
+                        "without any words on a picture, just the illustration "
+                        "with a relatively simple and straightforward style".format(
+                            word, description,
+                        )
+                    ),
+                    size="1024x1024",
+                    quality="standard",
+                    response_format="b64_json",
+                    n=1,
                 )
-            ),
-            size="1024x1024",
-            quality="standard",
-            response_format="b64_json",
-            n=1,
-        )
+                break
+            except RateLimitError as err:
+                log.warning(f"LLM rate limit exceeded: {err}, retrying in 10 seconds...")
+                await asyncio.sleep(10)
 
         loop = asyncio.get_running_loop()
         await loop.run_in_executor(

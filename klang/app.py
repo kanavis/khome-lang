@@ -1,11 +1,12 @@
 from contextlib import asynccontextmanager
 
+from dishka import AsyncContainer
 from fastapi import FastAPI
 
 from klang.api.oauth import bind_oauth_api
 from klang.api.vocabulary import bind_vocabulary_api
+from klang.config import Config
 from klang.db import create_db_and_tables
-from klang.storage import Storage
 
 
 @asynccontextmanager
@@ -14,7 +15,7 @@ async def lifespan(_app: FastAPI):
     yield
 
 
-def create_app(storage: Storage) -> FastAPI:
+def create_app(config: Config) -> FastAPI:
     app = FastAPI(lifespan=lifespan)
 
     @app.get("/")
@@ -22,6 +23,6 @@ def create_app(storage: Storage) -> FastAPI:
         return {"message": "Hello"}
 
     bind_oauth_api(app)
-    bind_vocabulary_api(app, storage)
+    bind_vocabulary_api(app, config)
 
     return app

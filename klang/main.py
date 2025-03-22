@@ -2,11 +2,12 @@ import argparse
 from pathlib import Path
 
 import uvicorn
+from dishka.integrations.fastapi import setup_dishka
 
-from klang.api.common import get_storage
 from klang.app import create_app
-from klang.config import load_config, set_default_config
+from klang.config import load_config
 from klang.db import setup_db_engine
+from klang.di import make_di_container
 from klang.logs import setup_logging
 
 
@@ -19,7 +20,7 @@ def main():
     args = parser.parse_args()
     setup_logging()
     config = load_config(args.config)
-    set_default_config(config)
+    container = make_di_container(config)
 
     setup_db_engine(
         db_user=config.db.user,
@@ -31,5 +32,6 @@ def main():
 
     host = args.host if args.host is not None else config.listen_host
     port = args.port if args.port is not None else config.listen_port
-    app = create_app(storage=get_storage(config))
+    app = create_app(config)
+    setup_dishka(container, app)
     uvicorn.run(app, host=host, port=port, log_config=None)

@@ -13,16 +13,20 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from klang.models import Lexicon
 
 engine: Optional[AsyncEngine] = None
+async_session: Optional[sessionmaker] = None
 
 log = logging.getLogger(__name__)
 
 
 def setup_db_engine(db_user: str, db_password: str, db_host: str, db_port: int, db_name: str):
-    global engine
+    global engine, async_session
     db_url = "postgresql+asyncpg://{}:{}@{}:{}/{}".format(
         db_user, db_password, db_host, db_port, db_name,
     )
     engine = AsyncEngine(create_engine(db_url))
+    async_session = sessionmaker(  # type: ignore
+        engine, class_=AsyncSession, expire_on_commit=False,
+    )
 
 
 async def create_db_and_tables():
@@ -45,22 +49,17 @@ async def create_db_and_tables():
 
 
 async def _get_session() -> AsyncGenerator[AsyncSession, None]:
-    if engine is None:
+    if async_session is None:
         raise Exception("Database engine is not initialized")
-    async_session = sessionmaker(  # type: ignore
-        engine, class_=AsyncSession, expire_on_commit=False,
-    )
+
     async with async_session() as session:
         yield session
 
 
 @asynccontextmanager
 async def get_session() -> AsyncGenerator[AsyncSession, None]:
-    if engine is None:
+    if async_session is None:
         raise Exception("Database engine is not initialized")
-    async_session = sessionmaker(  # type: ignore
-        engine, class_=AsyncSession, expire_on_commit=False,
-    )
     async with async_session() as session:
         yield session
 

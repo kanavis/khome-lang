@@ -1,26 +1,16 @@
 from dataclasses import dataclass
 from typing import Annotated
 
-import aiohttp
+from aiohttp import ClientSession
+from dishka import FromDishka
+from dishka.integrations.fastapi import inject
 from fastapi import Depends
 from fastapi.security import OAuth2AuthorizationCodeBearer
 
-from klang.config import Config, get_default_config
+from klang.config import Config
 from klang.db import SessionDep
-from klang.llm import LLMClient
 from klang.oauth import token_to_user, OAuthUser
-from klang.storage import Storage
 from klang.user_settings import UserSettings, load_settings
-
-
-async def get_http_session():
-    async with aiohttp.ClientSession() as session:
-        yield session
-
-HTTPClientDep = Annotated[aiohttp.ClientSession, Depends(get_http_session)]
-
-
-ConfigDep = Annotated[Config, Depends(get_default_config)]
 
 
 oauth2_scheme = OAuth2AuthorizationCodeBearer(
@@ -36,10 +26,11 @@ class UserData:
     settings: UserSettings
 
 
+@inject
 async def get_user_data(
     session: SessionDep,
-    config: ConfigDep,
-    http_client: HTTPClientDep,
+    config: FromDishka[Config],
+    http_client: FromDishka[ClientSession],
     user_token: Annotated[str, Depends(oauth2_scheme)],
 ) -> UserData:
     user = await token_to_user(http_client=http_client, config=config, token=user_token)
@@ -48,19 +39,3 @@ async def get_user_data(
 
 
 UserDep = Annotated[UserData, Depends(get_user_data)]
-
-
-async def get_llm_client(config: ConfigDep):
-    client = LLMClient(config)
-    await client.start()
-    return client
-
-
-LLMClientDep = Annotated[LLMClient, Depends(get_llm_client)]
-
-
-def get_storage(config: ConfigDep):
-    return Storage(config)
-
-
-StorageDep = Annotated[Storage, Depends(get_storage)]

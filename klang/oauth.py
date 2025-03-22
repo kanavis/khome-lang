@@ -52,6 +52,16 @@ def make_auth_url(config: Config) -> Tuple[str, str, str]:
         },
     )), verifier, state
 
+def make_logout_url(
+    config: Config, cancel_uri: str, redirect_uri: str,
+) -> str:
+    url = yarl.URL(config.oauth_client.logout_uri)
+    url = url.with_query({
+        "redirect_uri": redirect_uri,
+        "cancel_uri": cancel_uri,
+    })
+    return str(url)
+
 
 def oauth_verifier_cookie_name() -> str:
     return "oauth_verifier"
@@ -59,6 +69,20 @@ def oauth_verifier_cookie_name() -> str:
 
 def oauth_state_cookie_name() -> str:
     return "oauth_state"
+
+
+async def _parse_token_response(result: aiohttp.ClientResponse) -> OAuthTokenResponse:
+    if result.status != 200:
+        raise OAuthError(
+            "Auth server returned {}: {}".format(result.status, await result.text()),
+        )
+    try:
+        data = await result.json()
+        return OAuthTokenResponse(**data)
+    except (ValueError, KeyError, TypeError):
+        raise OAuthError(
+            "Auth server returned invalid response: {}".format(await result.text())
+        )
 
 
 async def code_to_token(
@@ -75,17 +99,22 @@ async def code_to_token(
             "code_verifier": verifier,
         }
     ) as result:
-        if result.status != 200:
-            raise OAuthError(
-                "Auth server returned {}: {}".format(result.status, await result.text()),
-            )
-        try:
-            data = await result.json()
-            return OAuthTokenResponse(**data)
-        except (ValueError, KeyError, TypeError):
-            raise OAuthError(
-                "Auth server returned invalid response: {}".format(await result.text())
-            )
+        return await _parse_token_response(result)
+
+
+async def refresh_token_to_token(
+    config: Config, http_session: aiohttp.ClientSession, refresh_token: str,
+) -> OAuthTokenResponse:
+    async with http_session.post(
+        config.oauth_client.token_uri,
+        data={
+            "client_id": config.oauth_client.client_id,
+            "client_secret": config.oauth_client.client_secret,
+            "grant_type": "refresh_token",
+            "refresh_token": refresh_token,
+        }
+    ) as result:
+        return await _parse_token_response(result)
 
 
 class OAuthUser(BaseModel):

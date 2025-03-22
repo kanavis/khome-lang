@@ -20,6 +20,7 @@ class OAuthClientConfig(BaseModel):
     token_uri: str
     callback_uri: str
     userinfo_uri: str
+    logout_uri: str
 
 
 class Config(BaseModel):
@@ -36,17 +37,3 @@ class Config(BaseModel):
 def load_config(path: Path) -> Config:
     with open(path) as f:
         return Config.model_validate(yaml.safe_load(f))
-
-
-default_config: Optional[Config] = None
-
-
-def set_default_config(config: Config):
-    global default_config
-    default_config = config
-
-
-def get_default_config() -> Config:
-    if default_config is None:
-        raise Exception("Default config is not set")
-    return default_config

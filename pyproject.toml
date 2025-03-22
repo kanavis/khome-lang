@@ -28,6 +28,7 @@ dependencies = [
     "aiohttp",
     "openai",
     "aiofiles",
+    "dishka",
 ]
 
 [project.scripts]
