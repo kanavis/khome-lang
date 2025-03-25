@@ -14,6 +14,10 @@ class UserSettingsValue(SQLModel, table=True):
 class Lexicon(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
     word: str = Field(index=True, unique=True)
+    top: bool = Field(index=True)
+    gender: str | None = Field(nullable=True, index=True)
+    part_of_speech: str | None = Field(index=True)
+    frequency: float = Field(index=True)
 
 
 class WordMeaning(SQLModel, table=True):
@@ -24,6 +28,13 @@ class WordMeaning(SQLModel, table=True):
     translations: list["WordMeaningTranslation"] = Relationship(
         back_populates="word_meaning", sa_relationship_kwargs={"lazy": "selectin"},
     )
+
+    def get_translation(self, language: str) -> "WordMeaningTranslation":
+        for translation in self.translations:
+            if translation.language == language:
+                return translation
+        else:
+            raise ValueError(f"Translation for word '{self.word}' language {language} not found")
 
 
 class WordMeaningTranslation(SQLModel, table=True):
@@ -64,3 +75,13 @@ class LLMLog(SQLModel, table=True):
     response_data: str = Field()
     amount_in: int = Field()
     amount_out: int = Field()
+
+
+class UserTraining(SQLModel, table=True):
+    __table_args__ = (UniqueConstraint("user_id", "training_type"),)
+
+    id: int | None = Field(default=None, primary_key=True)
+    user_id: int = Field(index=True)
+    training_type: str = Field(index=True)
+    training_data: str = Field()
+    created_at: datetime = Field(sa_column_kwargs={"server_default": text("CURRENT_TIMESTAMP")})

@@ -37,12 +37,24 @@ async def create_db_and_tables():
     async with get_session() as session:
         query = select(Lexicon).limit(1)
         if (await session.exec(query)).first() is None:
-            with open(Path(__file__).parent / "words.txt") as f:
+            with open(Path(__file__).parent.parent / "data/full_words.csv") as f:
                 async with engine.begin() as conn:
                     for line in f:
+                        line = line.strip()
+                        parts = line.split(";")
                         await conn.execute(
-                            text("INSERT INTO lexicon (word) VALUES (:word)"),
-                            {"word": line.strip()}
+                            text(
+                                "INSERT INTO lexicon "
+                                "(word, top, gender, part_of_speech, frequency) "
+                                "VALUES (:word, :top, :gender, :part_of_speech, :frequency)",
+                            ),
+                            {
+                                "word": parts[1],
+                                "top": parts[3] == "1",
+                                "gender": parts[5] if parts[5] else None,
+                                "part_of_speech": parts[4] if parts[4] else None,
+                                "frequency": float(parts[2]),
+                            },
                         )
                     await conn.commit()
             await session.commit()
