@@ -29,5 +29,8 @@ dependencies = [
     "dishka",
 ]
 
+[tool.setuptools.packages.find]
+include = ["klang"]
+
 [project.scripts]
 klang = "klang.main:main"
